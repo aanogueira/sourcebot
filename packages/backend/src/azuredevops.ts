@@ -1,13 +1,12 @@
 import { AzureDevOpsConnectionConfig } from "@sourcebot/schemas/v3/azuredevops.type";
-import { createLogger } from "@sourcebot/logger";
-import { getTokenFromConfig, measure, fetchWithRetry } from "./utils.js";
+import { createLogger } from "@sourcebot/shared";
+import { measure, fetchWithRetry } from "./utils.js";
 import micromatch from "micromatch";
-import { PrismaClient } from "@sourcebot/db";
-import { BackendException, BackendError } from "@sourcebot/error";
 import { processPromiseResults, throwIfAnyFailed } from "./connectionUtils.js";
 import * as Sentry from "@sentry/node";
 import * as azdev from "azure-devops-node-api";
 import { GitRepository } from "azure-devops-node-api/interfaces/GitInterfaces.js";
+import { getTokenFromConfig } from "@sourcebot/shared";
 
 const logger = createLogger('azuredevops');
 const AZUREDEVOPS_CLOUD_HOSTNAME = "dev.azure.com";
@@ -28,66 +27,54 @@ function createAzureDevOpsConnection(
 
 export const getAzureDevOpsReposFromConfig = async (
     config: AzureDevOpsConnectionConfig, 
-    orgId: number, 
-    db: PrismaClient
 ) => {
     const baseUrl = config.url || `https://${AZUREDEVOPS_CLOUD_HOSTNAME}`;
 
     const token = config.token ?
-        await getTokenFromConfig(config.token, orgId, db, logger) :
+        await getTokenFromConfig(config.token) :
         undefined;
 
     if (!token) {
-        const e = new BackendException(BackendError.CONNECTION_SYNC_INVALID_TOKEN, {
-            message: 'Azure DevOps requires a Personal Access Token',
-        });
+        const e = new Error('Azure DevOps requires a Personal Access Token');
         Sentry.captureException(e);
         throw e;
     }
 
     const useTfsPath = config.useTfsPath || false;
     let allRepos: GitRepository[] = [];
-    let notFound: {
-        users: string[],
-        orgs: string[],
-        repos: string[],
-    } = {
-        users: [],
-        orgs: [],
-        repos: [],
-    };
+    let allWarnings: string[] = [];
 
     if (config.orgs) {
-        const { validRepos, notFoundOrgs } = await getReposForOrganizations(
+        const { repos, warnings } = await getReposForOrganizations(
             config.orgs, 
             baseUrl,
             token,
             useTfsPath
         );
-        allRepos = allRepos.concat(validRepos);
-        notFound.orgs = notFoundOrgs;
+        allRepos = allRepos.concat(repos);
+        allWarnings = allWarnings.concat(warnings);
     }
 
     if (config.projects) {
-        const { validRepos, notFoundProjects } = await getReposForProjects(
+        const { repos, warnings } = await getReposForProjects(
             config.projects,
             baseUrl,
             token,
             useTfsPath
         );
-        allRepos = allRepos.concat(validRepos);
-        notFound.repos = notFound.repos.concat(notFoundProjects);
+        allRepos = allRepos.concat(repos);
+        allWarnings = allWarnings.concat(warnings);
     }
 
     if (config.repos) {
-        const { validRepos, notFoundRepos } = await getRepos(
+        const { repos, warnings } = await getRepos(
             config.repos,
             baseUrl,
             token,
             useTfsPath
         );
-        allRepos = allRepos.concat(validRepos);
-        notFound.repos = notFound.repos.concat(notFoundRepos);
+        allRepos = allRepos.concat(repos);
+        allWarnings = allWarnings.concat(warnings);
     }
 
     let repos = allRepos
@@ -103,8 +90,8 @@ export const getAzureDevOpsReposFromConfig = async (
     logger.debug(`Found ${repos.length} total repositories.`);
 
     return {
-        validRepos: repos,
-        notFound,
+        repos,
+        warnings: allWarnings,
     };
 };
 
@@ -221,10 +208,11 @@ async function getReposForOrganizations(
 
             // Check if it's a 404-like error (organization not found)
             if (error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 404) {
-                logger.error(`Organization ${org} not found or no access`);
+                const warning = `Organization ${org} not found or no access`;
+                logger.warn(warning);
                 return {
-                    type: 'notFound' as const,
-                    value: org
+                    type: 'warning' as const,
+                    warning
                 };
             }
             throw error;
@@ -232,11 +220,11 @@ async function getReposForOrganizations(
     }));
 
     throwIfAnyFailed(results);
-    const { validItems: validRepos, notFoundItems: notFoundOrgs } = processPromiseResults<GitRepository>(results);
+    const { validItems: repos, warnings } = processPromiseResults<GitRepository>(results);
 
     return {
-        validRepos,
-        notFoundOrgs,
+        repos,
+        warnings,
     };
 }
 
@@ -274,10 +262,11 @@ async function getReposForProjects(
             logger.error(`Failed to fetch repositories for project ${project}.`, error);
 
             if (error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 404) {
-                logger.error(`Project ${project} not found or no access`);
+                const warning = `Project ${project} not found or no access`;
+                logger.warn(warning);
                 return {
-                    type: 'notFound' as const,
-                    value: project
+                    type: 'warning' as const,
+                    warning
                 };
             }
             throw error;
@@ -285,11 +274,11 @@ async function getReposForProjects(
     }));
 
     throwIfAnyFailed(results);
-    const { validItems: validRepos, notFoundItems: notFoundProjects } = processPromiseResults<GitRepository>(results);
+    const { validItems: repos, warnings } = processPromiseResults<GitRepository>(results);
 
     return {
-        validRepos,
-        notFoundProjects,
+        repos,
+        warnings,
     };
 }
 
@@ -328,10 +317,11 @@ async function getRepos(
             logger.error(`Failed to fetch repository ${repo}.`, error);
 
             if (error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 404) {
-                logger.error(`Repository ${repo} not found or no access`);
+                const warning = `Repository ${repo} not found or no access`;
+                logger.warn(warning);
                 return {
-                    type: 'notFound' as const,
-                    value: repo
+                    type: 'warning' as const,
+                    warning
                 };
             }
             throw error;
@@ -339,10 +329,10 @@ async function getRepos(
     }));
 
     throwIfAnyFailed(results);
-    const { validItems: validRepos, notFoundItems: notFoundRepos } = processPromiseResults<GitRepository>(results);
+    const { validItems: repos, warnings } = processPromiseResults<GitRepository>(results);
 
     return {
-        validRepos,
-        notFoundRepos,
+        repos,
+        warnings,
     };
 }

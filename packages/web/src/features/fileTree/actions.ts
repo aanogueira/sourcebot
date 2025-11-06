@@ -1,11 +1,11 @@
 'use server';
 
 import { sew } from '@/actions';
-import { env } from '@/env.mjs';
+import { env } from '@sourcebot/shared';
 import { notFound, unexpectedError } from '@/lib/serviceError';
 import { withOptionalAuthV2 } from '@/withAuthV2';
 import { Repo } from '@sourcebot/db';
-import { createLogger } from '@sourcebot/logger';
+import { createLogger } from '@sourcebot/shared';
 import path from 'path';
 import { simpleGit } from 'simple-git';
 
@@ -263,7 +263,7 @@ const getRepoPath = (repo: Repo): { path: string, isReadOnly: boolean } => {
     // If we are dealing with a local repository, then use that as the path.
     // Mark as read-only since we aren't guaranteed to have write access to the local filesystem.
     const cloneUrl = new URL(repo.cloneUrl);
-    if (repo.external_codeHostType === 'generic-git-host' && cloneUrl.protocol === 'file:') {
+    if (repo.external_codeHostType === 'genericGitHost' && cloneUrl.protocol === 'file:') {
         return {
             path: cloneUrl.pathname,
             isReadOnly: true,

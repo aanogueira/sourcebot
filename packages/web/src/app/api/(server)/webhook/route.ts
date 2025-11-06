@@ -4,26 +4,26 @@ import { NextRequest } from "next/server";
 import { App, Octokit } from "octokit";
 import { WebhookEventDefinition} from "@octokit/webhooks/types";
 import { EndpointDefaults } from "@octokit/types";
-import { env } from "@/env.mjs";
+import { env } from "@sourcebot/shared";
 import { processGitHubPullRequest } from "@/features/agents/review-agent/app";
 import { throttling } from "@octokit/plugin-throttling";
 import fs from "fs";
 import { GitHubPullRequest } from "@/features/agents/review-agent/types";
-import { createLogger } from "@sourcebot/logger";
+import { createLogger } from "@sourcebot/shared";
 
 const logger = createLogger('github-webhook');
 
 let githubApp: App | undefined;
-if (env.GITHUB_APP_ID && env.GITHUB_APP_WEBHOOK_SECRET && env.GITHUB_APP_PRIVATE_KEY_PATH) {
+if (env.GITHUB_REVIEW_AGENT_APP_ID && env.GITHUB_REVIEW_AGENT_APP_WEBHOOK_SECRET && env.GITHUB_REVIEW_AGENT_APP_PRIVATE_KEY_PATH) {
     try {
-        const privateKey = fs.readFileSync(env.GITHUB_APP_PRIVATE_KEY_PATH, "utf8");
+        const privateKey = fs.readFileSync(env.GITHUB_REVIEW_AGENT_APP_PRIVATE_KEY_PATH, "utf8");
 
         const throttledOctokit = Octokit.plugin(throttling);
         githubApp = new App({
-            appId: env.GITHUB_APP_ID,
+            appId: env.GITHUB_REVIEW_AGENT_APP_ID,
             privateKey: privateKey,
             webhooks: {
-                secret: env.GITHUB_APP_WEBHOOK_SECRET,
+                secret: env.GITHUB_REVIEW_AGENT_APP_WEBHOOK_SECRET,
             },
             Octokit: throttledOctokit,
             throttle: {

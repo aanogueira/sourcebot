@@ -1,10 +1,12 @@
 import 'server-only';
-import { env } from "@/env.mjs";
+import { env, getDBConnectionString } from "@sourcebot/shared";
 import { Prisma, PrismaClient } from "@sourcebot/db";
 import { hasEntitlement } from "@sourcebot/shared";
 
 // @see: https://authjs.dev/getting-started/adapters/prisma
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
+
+const dbConnectionString = getDBConnectionString();
 
 // @NOTE: In almost all cases, the userScopedPrismaClientExtension should be used
 // (since actions & queries are scoped to a particular user). There are some exceptions
@@ -13,42 +15,56 @@ const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
 // @todo: we can mark this as `__unsafePrisma` in the future once we've migrated
 // all of the actions & queries to use the userScopedPrismaClientExtension to avoid
 // accidental misuse.
-export const prisma = globalForPrisma.prisma || new PrismaClient()
+export const prisma = globalForPrisma.prisma || new PrismaClient({
+    // @note: this code is evaluated at build time, and will throw exceptions if these env vars are not set.
+    // Here we explicitly check if the DATABASE_URL or the individual database variables are set, and only
+    ...(dbConnectionString !== undefined ? {
+        datasources: {
+            db: {
+                url: dbConnectionString,
+            },
+        }
+    }: {}),
+})
 if (env.NODE_ENV !== "production") globalForPrisma.prisma = prisma
 
 /**
  * Creates a prisma client extension that scopes queries to striclty information
  * a given user should be able to access.
  */
-export const userScopedPrismaClientExtension = (userId?: string) => {
+export const userScopedPrismaClientExtension = (accountIds?: string[]) => {
     return Prisma.defineExtension(
         (prisma) => {
             return prisma.$extends({
                 query: {
                     ...(env.EXPERIMENT_EE_PERMISSION_SYNC_ENABLED === 'true' && hasEntitlement('permission-syncing') ? {
                         repo: {
-                            $allOperations({ args, query }) {
-                                if ('where' in args) {
-                                    args.where = {
-                                        ...args.where,
-                                        OR: [
-                                            // Only include repos that are permitted to the user
-                                            ...(userId ? [
-                                                {
-                                                    permittedUsers: {
-                                                        some: {
-                                                            userId,
+                            async $allOperations({ args, query }) {
+                                const argsWithWhere = args as Record<string, unknown> & {
+                                    where?: Prisma.RepoWhereInput;
+                                }
+
+                                argsWithWhere.where = {
+                                    ...(argsWithWhere.where || {}),
+                                    OR: [
+                                        // Only include repos that are permitted to the user
+                                        ...(accountIds ? [
+                                            {
+                                                permittedAccounts: {
+                                                    some: {
+                                                        accountId: {
+                                                            in: accountIds,
                                                         }
                                                     }
-                                                },
-                                            ] : []),
-                                            // or are public.
-                                            {
-                                                isPublic: true,
-                                            }
-                                        ]
-                                    }
-                                }
+                                                }
+                                            },
+                                        ] : []),
+                                        // or are public.
+                                        {
+                                            isPublic: true,
+                                        }
+                                    ]
+                                };
 
                                 return query(args);
                             }

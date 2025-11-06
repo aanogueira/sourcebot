@@ -1,27 +1,68 @@
 #!/bin/sh
+
+# Exit immediately if a command fails
 set -e
+# Disable auto-exporting of variables
+set +a
 
-# Check if DATABASE_URL is not set
-if [ -z "$DATABASE_URL" ]; then
-    # Check if the individual database variables are set and construct the URL
-    if [ -n "$DATABASE_HOST" ] && [ -n "$DATABASE_USERNAME" ] && [ -n "$DATABASE_PASSWORD" ]  && [ -n "$DATABASE_NAME" ]; then
-        DATABASE_URL="postgresql://${DATABASE_USERNAME}:${DATABASE_PASSWORD}@${DATABASE_HOST}/${DATABASE_NAME}"
+# Detect if running as root
+IS_ROOT=false
+if [ "$(id -u)" -eq 0 ]; then
+    IS_ROOT=true
+fi
 
-        if [ -n "$DATABASE_ARGS" ]; then
-            DATABASE_URL="${DATABASE_URL}?$DATABASE_ARGS"
-        fi
+if [ "$IS_ROOT" = "true" ]; then
+    echo -e "\e[34m[Info] Running as root user.\e[0m"
+else
+    echo -e "\e[34m[Info] Running as non-root user.\e[0m"
+fi
 
-        export DATABASE_URL
+# If a CONFIG_PATH is set, resolve the environment overrides from the config file.
+# The overrides will be written into variables scopped to the current shell. This is
+# required in case one of the variables used in this entrypoint is overriden (e.g.,
+# DATABASE_URL, REDIS_URL, etc.)
+if [ -n "$CONFIG_PATH" ]; then
+    echo -e "\e[34m[Info] Resolving environment overrides from $CONFIG_PATH...\e[0m"
+
+    set +e # Disable exist on error so we can capture EXIT_CODE
+    OVERRIDES_OUTPUT=$(SKIP_ENV_VALIDATION=1 yarn tool:resolve-env-overrides 2>&1)
+    EXIT_CODE=$?
+    set -e # Re-enable exit on error
+
+    if [ $EXIT_CODE -eq 0 ]; then
+        eval "$OVERRIDES_OUTPUT"
     else
-        # Otherwise, fallback to a default value
-        DATABASE_URL="postgresql://postgres@localhost:5432/sourcebot"
-        export DATABASE_URL
+        echo -e "\e[31m[Error] Failed to resolve environment overrides.\e[0m"
+        echo "$OVERRIDES_OUTPUT"
+        exit 1
     fi
 fi
 
-if [ "$DATABASE_URL" = "postgresql://postgres@localhost:5432/sourcebot" ]; then
-    DATABASE_EMBEDDED="true"
+# Descontruct the database URL from the individual variables if DATABASE_URL is not set
+if [ -z "$DATABASE_URL" ] && [ -n "$DATABASE_HOST" ] && [ -n "$DATABASE_USERNAME" ] && [ -n "$DATABASE_PASSWORD" ]  && [ -n "$DATABASE_NAME" ]; then
+    DATABASE_URL="postgresql://${DATABASE_USERNAME}:${DATABASE_PASSWORD}@${DATABASE_HOST}/${DATABASE_NAME}"
+
+    if [ -n "$DATABASE_ARGS" ]; then
+        DATABASE_URL="${DATABASE_URL}?$DATABASE_ARGS"
+    fi
 fi
+
+if [ -z "$DATABASE_URL" ]; then
+    echo -e "\e[34m[Info] DATABASE_URL is not set. Using embeded database.\e[0m"
+    export DATABASE_EMBEDDED="true"
+    export DATABASE_URL="postgresql://postgres@localhost:5432/sourcebot"
+else
+    export DATABASE_EMBEDDED="false"
+fi
+
+if [ -z "$REDIS_URL" ]; then
+    echo -e "\e[34m[Info] REDIS_URL is not set. Using embeded redis.\e[0m"
+    export REDIS_EMBEDDED="true"
+    export REDIS_URL="redis://localhost:6379"
+else
+    export REDIS_EMBEDDED="false"
+fi
+
 
 echo -e "\e[34m[Info] Sourcebot version: $NEXT_PUBLIC_SOURCEBOT_VERSION\e[0m"
 
@@ -54,12 +95,17 @@ fi
 # Check if DATABASE_DATA_DIR exists, if not initialize it
 if [ "$DATABASE_EMBEDDED" = "true" ] && [ ! -d "$DATABASE_DATA_DIR" ]; then
     echo -e "\e[34m[Info] Initializing database at $DATABASE_DATA_DIR...\e[0m"
-    mkdir -p $DATABASE_DATA_DIR && chown -R postgres:postgres "$DATABASE_DATA_DIR"
-    su postgres -c "initdb -D $DATABASE_DATA_DIR"
+    mkdir -p $DATABASE_DATA_DIR
+    if [ "$IS_ROOT" = "true" ]; then
+        chown -R postgres:postgres "$DATABASE_DATA_DIR"
+        su postgres -c "initdb -D $DATABASE_DATA_DIR"
+    else
+        initdb -D "$DATABASE_DATA_DIR" -U postgres
+    fi
 fi
 
 # Create the redis data directory if it doesn't exist
-if [ ! -d "$REDIS_DATA_DIR" ]; then
+if [ "$REDIS_EMBEDDED" = "true" ] && [ ! -d "$REDIS_DATA_DIR" ]; then
     mkdir -p $REDIS_DATA_DIR
 fi
 
@@ -149,16 +195,33 @@ fi
 
 echo "{\"version\": \"$NEXT_PUBLIC_SOURCEBOT_VERSION\", \"install_id\": \"$SOURCEBOT_INSTALL_ID\"}" > "$FIRST_RUN_FILE"
 
-
 # Start the database and wait for it to be ready before starting any other service
 if [ "$DATABASE_EMBEDDED" = "true" ]; then
-    su postgres -c "postgres -D $DATABASE_DATA_DIR" &
+    if [ "$IS_ROOT" = "true" ]; then
+        su postgres -c "postgres -D $DATABASE_DATA_DIR" &
+    else
+        postgres -D "$DATABASE_DATA_DIR" &
+    fi
+
     until pg_isready -h localhost -p 5432 -U postgres; do
         echo -e "\e[34m[Info] Waiting for the database to be ready...\e[0m"
         sleep 1
-    done
 
-    # Check if the database already exists, and create it if it dne
+        # As postgres runs in the background, we must check if it is still
+        # running, otherwise the "until" loop will be running indefinitely.
+        if ! pgrep -x "postgres" > /dev/null; then
+            echo "postgres failed to run"
+            exit 1
+        fi
+    done
+    
+    if [ "$IS_ROOT" = "false" ]; then
+        # Running as non-root we need to ensure the postgres account is created.
+        psql -U postgres -tc "SELECT 1 FROM pg_roles WHERE rolname='postgres'" | grep -q 1 \
+            || createuser postgres -s
+    fi
+
+    # Check if the database already exists, and create it if it doesn't exist
     EXISTING_DB=$(psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'sourcebot'")
 
     if [ "$EXISTING_DB" = "1" ]; then
@@ -171,9 +234,9 @@ fi
 
 # Run a Database migration
 echo -e "\e[34m[Info] Running database migration...\e[0m"
-yarn workspace @sourcebot/db prisma:migrate:prod
+DATABASE_URL="$DATABASE_URL" yarn workspace @sourcebot/db prisma:migrate:prod
 
-# Create the log directory
+# Create the log directory if it doesn't exist
 mkdir -p /var/log/sourcebot
 
 # Run supervisord

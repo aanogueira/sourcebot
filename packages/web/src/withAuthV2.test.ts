@@ -2,7 +2,7 @@ import { expect, test, vi, beforeEach, describe } from 'vitest';
 import { Session } from 'next-auth';
 import { notAuthenticated } from './lib/serviceError';
 import { getAuthContext, getAuthenticatedUser, withAuthV2, withOptionalAuthV2 } from './withAuthV2';
-import { MOCK_API_KEY, MOCK_ORG, MOCK_USER, prisma } from './__mocks__/prisma';
+import { MOCK_API_KEY, MOCK_ORG, MOCK_USER_WITH_ACCOUNTS, prisma } from './__mocks__/prisma';
 import { OrgRole } from '@sourcebot/db';
 
 const mocks = vi.hoisted(() => {
@@ -18,16 +18,8 @@ vi.mock('./auth', () => ({
     auth: mocks.auth,
 }));
 
-vi.mock('@/env.mjs', () => ({
-    env: {}
-}));
-
 vi.mock('next/headers', () => ({
     headers: mocks.headers,
-}));
-
-vi.mock('@/env.mjs', () => ({
-    env: {}
 }));
 
 vi.mock('@/prisma', async () => {
@@ -38,16 +30,14 @@ vi.mock('@/prisma', async () => {
     };
 });
 
-vi.mock('@sourcebot/crypto', () => ({
-    hashSecret: vi.fn((secret: string) => secret),
-}));
-
 vi.mock('server-only', () => ({
     default: vi.fn(),
 }));
 
 vi.mock('@sourcebot/shared', () => ({
     hasEntitlement: mocks.hasEntitlement,
+    hashSecret: vi.fn((secret: string) => secret),
+    env: {}
 }));
 
 // Test utility to set the mock session
@@ -83,7 +73,7 @@ describe('getAuthenticatedUser', () => {
     test('should return a user object if a valid session is present', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         setMockSession(createMockSession({ user: { id: 'test-user-id' } }));
@@ -95,7 +85,7 @@ describe('getAuthenticatedUser', () => {
     test('should return a user object if a valid api key is present', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.apiKey.findUnique.mockResolvedValue({
@@ -165,7 +155,7 @@ describe('getAuthContext', () => {
     test('should return a auth context object if a valid session is present and the user is a member of the organization', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -183,7 +173,7 @@ describe('getAuthContext', () => {
         expect(authContext).not.toBeUndefined();
         expect(authContext).toStrictEqual({
             user: {
-                ...MOCK_USER,
+                ...MOCK_USER_WITH_ACCOUNTS,
                 id: userId,
             },
             org: MOCK_ORG,
@@ -195,7 +185,7 @@ describe('getAuthContext', () => {
     test('should return a auth context object if a valid session is present and the user is a member of the organization with OWNER role', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -213,7 +203,7 @@ describe('getAuthContext', () => {
         expect(authContext).not.toBeUndefined();
         expect(authContext).toStrictEqual({
             user: {
-                ...MOCK_USER,
+                ...MOCK_USER_WITH_ACCOUNTS,
                 id: userId,
             },
             org: MOCK_ORG,
@@ -225,7 +215,7 @@ describe('getAuthContext', () => {
     test('should return a auth context object if a valid session is present and the user is not a member of the organization. The role should be GUEST.', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -238,7 +228,7 @@ describe('getAuthContext', () => {
         expect(authContext).not.toBeUndefined();
         expect(authContext).toStrictEqual({
             user: {
-                ...MOCK_USER,
+                ...MOCK_USER_WITH_ACCOUNTS,
                 id: userId,
             },
             org: MOCK_ORG,
@@ -268,7 +258,7 @@ describe('withAuthV2', () => {
     test('should call the callback with the auth context object if a valid session is present and the user is a member of the organization', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -286,7 +276,7 @@ describe('withAuthV2', () => {
         const result = await withAuthV2(cb);
         expect(cb).toHaveBeenCalledWith({
             user: {
-                ...MOCK_USER,
+                ...MOCK_USER_WITH_ACCOUNTS,
                 id: userId,
             },
             org: MOCK_ORG,
@@ -298,7 +288,7 @@ describe('withAuthV2', () => {
     test('should call the callback with the auth context object if a valid session is present and the user is a member of the organization with OWNER role', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -316,7 +306,7 @@ describe('withAuthV2', () => {
         const result = await withAuthV2(cb);
         expect(cb).toHaveBeenCalledWith({
             user: {
-                ...MOCK_USER,
+                ...MOCK_USER_WITH_ACCOUNTS,
                 id: userId,
             },
             org: MOCK_ORG,
@@ -328,7 +318,7 @@ describe('withAuthV2', () => {
     test('should call the callback with the auth context object if a valid session is present and the user is a member of the organization (api key)', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -351,7 +341,7 @@ describe('withAuthV2', () => {
         const result = await withAuthV2(cb);
         expect(cb).toHaveBeenCalledWith({
             user: {
-                ...MOCK_USER,
+                ...MOCK_USER_WITH_ACCOUNTS,
                 id: userId,
             },
             org: MOCK_ORG,
@@ -363,7 +353,7 @@ describe('withAuthV2', () => {
     test('should call the callback with the auth context object if a valid session is present and the user is a member of the organization with OWNER role (api key)', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -386,7 +376,7 @@ describe('withAuthV2', () => {
         const result = await withAuthV2(cb);
         expect(cb).toHaveBeenCalledWith({
             user: {
-                ...MOCK_USER,
+                ...MOCK_USER_WITH_ACCOUNTS,
                 id: userId,
             },
             org: MOCK_ORG,
@@ -398,7 +388,7 @@ describe('withAuthV2', () => {
     test('should return a service error if the user is a member of the organization but does not have a valid session', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -421,7 +411,7 @@ describe('withAuthV2', () => {
     test('should return a service error if the user is a guest of the organization', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -445,7 +435,7 @@ describe('withAuthV2', () => {
     test('should return a service error if the user is not a member of the organization (guest role)', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -465,7 +455,7 @@ describe('withOptionalAuthV2', () => {
     test('should call the callback with the auth context object if a valid session is present and the user is a member of the organization', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -483,7 +473,7 @@ describe('withOptionalAuthV2', () => {
         const result = await withOptionalAuthV2(cb);
         expect(cb).toHaveBeenCalledWith({
             user: {
-                ...MOCK_USER,
+                ...MOCK_USER_WITH_ACCOUNTS,
                 id: userId,
             },
             org: MOCK_ORG,
@@ -495,7 +485,7 @@ describe('withOptionalAuthV2', () => {
     test('should call the callback with the auth context object if a valid session is present and the user is a member of the organization with OWNER role', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -513,7 +503,7 @@ describe('withOptionalAuthV2', () => {
         const result = await withOptionalAuthV2(cb);
         expect(cb).toHaveBeenCalledWith({
             user: {
-                ...MOCK_USER,
+                ...MOCK_USER_WITH_ACCOUNTS,
                 id: userId,
             },
             org: MOCK_ORG,
@@ -525,7 +515,7 @@ describe('withOptionalAuthV2', () => {
     test('should call the callback with the auth context object if a valid session is present and the user is a member of the organization (api key)', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -548,7 +538,7 @@ describe('withOptionalAuthV2', () => {
         const result = await withOptionalAuthV2(cb);
         expect(cb).toHaveBeenCalledWith({
             user: {
-                ...MOCK_USER,
+                ...MOCK_USER_WITH_ACCOUNTS,
                 id: userId,
             },
             org: MOCK_ORG,
@@ -560,7 +550,7 @@ describe('withOptionalAuthV2', () => {
     test('should call the callback with the auth context object if a valid session is present and the user is a member of the organization with OWNER role (api key)', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -583,7 +573,7 @@ describe('withOptionalAuthV2', () => {
         const result = await withOptionalAuthV2(cb);
         expect(cb).toHaveBeenCalledWith({
             user: {
-                ...MOCK_USER,
+                ...MOCK_USER_WITH_ACCOUNTS,
                 id: userId,
             },
             org: MOCK_ORG,
@@ -595,7 +585,7 @@ describe('withOptionalAuthV2', () => {
     test('should return a service error if the user is a member of the organization but does not have a valid session', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -618,7 +608,7 @@ describe('withOptionalAuthV2', () => {
     test('should return a service error if the user is a guest of the organization', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -642,7 +632,7 @@ describe('withOptionalAuthV2', () => {
     test('should return a service error if the user is not a member of the organization (guest role)', async () => {
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -662,7 +652,7 @@ describe('withOptionalAuthV2', () => {
 
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -677,7 +667,7 @@ describe('withOptionalAuthV2', () => {
         const result = await withOptionalAuthV2(cb);
         expect(cb).toHaveBeenCalledWith({
             user: {
-                ...MOCK_USER,
+                ...MOCK_USER_WITH_ACCOUNTS,
                 id: userId,
             },
             org: {
@@ -696,7 +686,7 @@ describe('withOptionalAuthV2', () => {
 
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({
@@ -718,7 +708,7 @@ describe('withOptionalAuthV2', () => {
 
         const userId = 'test-user-id';
         prisma.user.findUnique.mockResolvedValue({
-            ...MOCK_USER,
+            ...MOCK_USER_WITH_ACCOUNTS,
             id: userId,
         });
         prisma.org.findUnique.mockResolvedValue({

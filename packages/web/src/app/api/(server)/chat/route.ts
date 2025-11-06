@@ -1,8 +1,8 @@
 import { sew, withAuth, withOrgMembership } from "@/actions";
 import { _getConfiguredLanguageModelsFull, _getAISDKLanguageModelAndOptions, updateChatMessages } from "@/features/chat/actions";
 import { createAgentStream } from "@/features/chat/agent";
-import { additionalChatRequestParamsSchema, SBChatMessage, SearchScope } from "@/features/chat/types";
-import { getAnswerPartFromAssistantMessage } from "@/features/chat/utils";
+import { additionalChatRequestParamsSchema, LanguageModelInfo, SBChatMessage, SearchScope } from "@/features/chat/types";
+import { getAnswerPartFromAssistantMessage, getLanguageModelKey } from "@/features/chat/utils";
 import { ErrorCode } from "@/lib/errorCodes";
 import { notFound, schemaValidationError, serviceErrorResponse } from "@/lib/serviceError";
 import { isServiceError } from "@/lib/utils";
@@ -10,7 +10,7 @@ import { prisma } from "@/prisma";
 import { LanguageModelV2 as AISDKLanguageModelV2 } from "@ai-sdk/provider";
 import * as Sentry from "@sentry/nextjs";
 import { OrgRole } from "@sourcebot/db";
-import { createLogger } from "@sourcebot/logger";
+import { createLogger } from "@sourcebot/shared";
 import {
     createUIMessageStream,
     createUIMessageStreamResponse,
@@ -49,7 +49,11 @@ export async function POST(req: Request) {
         return serviceErrorResponse(schemaValidationError(parsed.error));
     }
 
-    const { messages, id, selectedSearchScopes, languageModelId } = parsed.data;
+    const { messages, id, selectedSearchScopes, languageModel: _languageModel } = parsed.data;
+    // @note: a bit of type massaging is required here since the
+    // zod schema does not enum on `model` or `provider`.
+    // @see: chat/types.ts
+    const languageModel = _languageModel as LanguageModelInfo;
 
     const response = await sew(() =>
         withAuth((userId) =>
@@ -78,17 +82,17 @@ export async function POST(req: Request) {
                 // corresponding config in `config.json`.
                 const languageModelConfig =
                     (await _getConfiguredLanguageModelsFull())
-                        .find((model) => model.model === languageModelId);
+                        .find((model) => getLanguageModelKey(model) === getLanguageModelKey(languageModel));
 
                 if (!languageModelConfig) {
                     return serviceErrorResponse({
                         statusCode: StatusCodes.BAD_REQUEST,
                         errorCode: ErrorCode.INVALID_REQUEST_BODY,
-                        message: `Language model ${languageModelId} is not configured.`,
+                        message: `Language model ${languageModel.model} is not configured.`,
                     });
                 }
 
-                const { model, providerOptions } = await _getAISDKLanguageModelAndOptions(languageModelConfig, org.id);
+                const { model, providerOptions } = await _getAISDKLanguageModelAndOptions(languageModelConfig);
 
                 return createMessageStreamResponse({
                     messages,

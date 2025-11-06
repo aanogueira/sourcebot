@@ -1,47 +1,56 @@
 import { Gitlab, ProjectSchema } from "@gitbeaker/rest";
-import micromatch from "micromatch";
-import { createLogger } from "@sourcebot/logger";
-import { GitlabConnectionConfig } from "@sourcebot/schemas/v3/gitlab.type"
-import { getTokenFromConfig, measure, fetchWithRetry } from "./utils.js";
-import { PrismaClient } from "@sourcebot/db";
-import { processPromiseResults, throwIfAnyFailed } from "./connectionUtils.js";
 import * as Sentry from "@sentry/node";
-import { env } from "./env.js";
+import { getTokenFromConfig } from "@sourcebot/shared";
+import { createLogger } from "@sourcebot/shared";
+import { GitlabConnectionConfig } from "@sourcebot/schemas/v3/gitlab.type";
+import { env } from "@sourcebot/shared";
+import micromatch from "micromatch";
+import { processPromiseResults, throwIfAnyFailed } from "./connectionUtils.js";
+import { fetchWithRetry, measure } from "./utils.js";
 
 const logger = createLogger('gitlab');
 export const GITLAB_CLOUD_HOSTNAME = "gitlab.com";
 
-export const getGitLabReposFromConfig = async (config: GitlabConnectionConfig, orgId: number, db: PrismaClient) => {
+export const createGitLabFromPersonalAccessToken = async ({ token, url }: { token?: string, url?: string }) => {
+    const isGitLabCloud = url ? new URL(url).hostname === GITLAB_CLOUD_HOSTNAME : false;
+    return new Gitlab({
+        token,
+        ...(isGitLabCloud ? {} : {
+            host: url,
+        }),
+        queryTimeout: env.GITLAB_CLIENT_QUERY_TIMEOUT_SECONDS * 1000,
+    });
+}
+
+export const createGitLabFromOAuthToken = async ({ oauthToken, url }: { oauthToken?: string, url?: string }) => {
+    const isGitLabCloud = url ? new URL(url).hostname === GITLAB_CLOUD_HOSTNAME : false;
+    return new Gitlab({
+        oauthToken,
+        ...(isGitLabCloud ? {} : {
+            host: url,
+        }),
+        queryTimeout: env.GITLAB_CLIENT_QUERY_TIMEOUT_SECONDS * 1000,
+    });
+}
+
+export const getGitLabReposFromConfig = async (config: GitlabConnectionConfig) => {
     const hostname = config.url ?
         new URL(config.url).hostname :
         GITLAB_CLOUD_HOSTNAME;
 
     const token = config.token ?
-        await getTokenFromConfig(config.token, orgId, db, logger) :
+        await getTokenFromConfig(config.token) :
         hostname === GITLAB_CLOUD_HOSTNAME ?
         env.FALLBACK_GITLAB_CLOUD_TOKEN :
         undefined;
-    
-    const api = new Gitlab({
-        ...(token ? {
-            token,
-        } : {}),
-        ...(config.url ? {
-            host: config.url,
-        } : {}),
-        queryTimeout: env.GITLAB_CLIENT_QUERY_TIMEOUT_SECONDS * 1000,
+
+    const api = await createGitLabFromPersonalAccessToken({
+        token,
+        url: config.url,
     });
 
     let allRepos: ProjectSchema[] = [];
-    let notFound: {
-        orgs: string[],
-        users: string[],
-        repos: string[],
-    } = {
-        orgs: [],
-        users: [],
-        repos: [],
-    };
+    let allWarnings: string[] = [];
 
     if (config.all === true) {
         if (hostname !== GITLAB_CLOUD_HOSTNAME) {
@@ -61,7 +70,9 @@ export const getGitLabReposFromConfig = async (config: GitlabConnectionConfig, o
                 throw e;
             }
         } else {
-            logger.warn(`Ignoring option all:true in config : host is ${GITLAB_CLOUD_HOSTNAME}`);
+            const warning = `Ignoring option all:true in config : host is ${GITLAB_CLOUD_HOSTNAME}`;
+            logger.warn(warning);
+            allWarnings = allWarnings.concat(warning);
         }
     }
 
@@ -87,10 +98,11 @@ export const getGitLabReposFromConfig = async (config: GitlabConnectionConfig, o
 
                 const status = e?.cause?.response?.status;
                 if (status === 404) {
-                    logger.error(`Group ${group} not found or no access`);
+                    const warning = `Group ${group} not found or no access`;
+                    logger.warn(warning);
                     return {
-                        type: 'notFound' as const,
-                        value: group
+                        type: 'warning' as const,
+                        warning
                     };
                 }
                 throw e;
@@ -98,9 +110,9 @@ export const getGitLabReposFromConfig = async (config: GitlabConnectionConfig, o
         }));
 
         throwIfAnyFailed(results);
-        const { validItems: validRepos, notFoundItems: notFoundOrgs } = processPromiseResults(results);
+        const { validItems: validRepos, warnings } = processPromiseResults(results);
         allRepos = allRepos.concat(validRepos);
-        notFound.orgs = notFoundOrgs;
+        allWarnings = allWarnings.concat(warnings);
     }
 
     if (config.users) {
@@ -124,10 +136,11 @@ export const getGitLabReposFromConfig = async (config: GitlabConnectionConfig, o
 
                 const status = e?.cause?.response?.status;
                 if (status === 404) {
-                    logger.error(`User ${user} not found or no access`);
+                    const warning = `User ${user} not found or no access`;
+                    logger.warn(warning);
                     return {
-                        type: 'notFound' as const,
-                        value: user
+                        type: 'warning' as const,
+                        warning
                     };
                 }
                 throw e;
@@ -135,9 +148,9 @@ export const getGitLabReposFromConfig = async (config: GitlabConnectionConfig, o
         }));
 
         throwIfAnyFailed(results);
-        const { validItems: validRepos, notFoundItems: notFoundUsers } = processPromiseResults(results);
+        const { validItems: validRepos, warnings } = processPromiseResults(results);
         allRepos = allRepos.concat(validRepos);
-        notFound.users = notFoundUsers;
+        allWarnings = allWarnings.concat(warnings);
     }
 
     if (config.projects) {
@@ -160,10 +173,11 @@ export const getGitLabReposFromConfig = async (config: GitlabConnectionConfig, o
                 const status = e?.cause?.response?.status;
 
                 if (status === 404) {
-                    logger.error(`Project ${project} not found or no access`);
+                    const warning = `Project ${project} not found or no access`;
+                    logger.warn(warning);
                     return {
-                        type: 'notFound' as const,
-                        value: project
+                        type: 'warning' as const,
+                        warning
                     };
                 }
                 throw e;
@@ -171,9 +185,9 @@ export const getGitLabReposFromConfig = async (config: GitlabConnectionConfig, o
         }));
 
         throwIfAnyFailed(results);
-        const { validItems: validRepos, notFoundItems: notFoundRepos } = processPromiseResults(results);
+        const { validItems: validRepos, warnings } = processPromiseResults(results);
         allRepos = allRepos.concat(validRepos);
-        notFound.repos = notFoundRepos;
+        allWarnings = allWarnings.concat(warnings);
     }
 
     let repos = allRepos
@@ -192,8 +206,8 @@ export const getGitLabReposFromConfig = async (config: GitlabConnectionConfig, o
     logger.debug(`Found ${repos.length} total repositories.`);
 
     return {
-        validRepos: repos,
-        notFound,
+        repos,
+        warnings: allWarnings,
     };
 }
 
@@ -263,4 +277,38 @@ export const shouldExcludeProject = ({
     }
 
     return false;
+}
+
+export const getProjectMembers = async (projectId: string, api: InstanceType<typeof Gitlab>) => {
+    try {
+        const fetchFn = () => api.ProjectMembers.all(projectId, {
+            perPage: 100,
+            includeInherited: true,
+        });
+
+        const members = await fetchWithRetry(fetchFn, `project ${projectId}`, logger);
+        return members as Array<{ id: number }>;
+    } catch (error) {
+        Sentry.captureException(error);
+        logger.error(`Failed to fetch members for project ${projectId}.`, error);
+        throw error;
+    }
+}
+
+export const getProjectsForAuthenticatedUser = async (visibility: 'private' | 'internal' | 'public' | 'all' = 'all', api: InstanceType<typeof Gitlab>) => {
+    try {
+        const fetchFn = () => api.Projects.all({
+            membership: true,
+            ...(visibility !== 'all' ? {
+                visibility,
+            } : {}),
+            perPage: 100,
+        });
+        const response = await fetchWithRetry(fetchFn, `authenticated user`, logger);
+        return response;
+    } catch (error) {
+        Sentry.captureException(error);
+        logger.error(`Failed to fetch projects for authenticated user.`, error);
+        throw error;
+    }
 }

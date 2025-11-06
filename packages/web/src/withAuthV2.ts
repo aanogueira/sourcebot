@@ -1,5 +1,5 @@
 import { prisma as __unsafePrisma, userScopedPrismaClientExtension } from "@/prisma";
-import { hashSecret } from "@sourcebot/crypto";
+import { hashSecret } from "@sourcebot/shared";
 import { ApiKey, Org, OrgRole, PrismaClient, User } from "@sourcebot/db";
 import { headers } from "next/headers";
 import { auth } from "./auth";
@@ -88,7 +88,8 @@ export const getAuthContext = async (): Promise<OptionalAuthContext | ServiceErr
         },
     }) : null;
 
-    const prisma = __unsafePrisma.$extends(userScopedPrismaClientExtension(user?.id)) as PrismaClient;
+    const accountIds = user?.accounts.map(account => account.id);
+    const prisma = __unsafePrisma.$extends(userScopedPrismaClientExtension(accountIds)) as PrismaClient;
 
     return {
         user: user ?? undefined,
@@ -106,6 +107,9 @@ export const getAuthenticatedUser = async () => {
         const user = await __unsafePrisma.user.findUnique({
             where: {
                 id: userId,
+            },
+            include: {
+                accounts: true,
             }
         });
 
@@ -125,6 +129,9 @@ export const getAuthenticatedUser = async () => {
             where: {
                 id: apiKey.createdById,
             },
+            include: {
+                accounts: true,
+            }
         });
 
         if (!user) {

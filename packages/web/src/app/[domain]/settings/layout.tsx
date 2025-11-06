@@ -1,17 +1,17 @@
 import React from "react"
 import { Metadata } from "next"
-import { SidebarNav } from "./components/sidebar-nav"
+import { SidebarNav, SidebarNavItem } from "./components/sidebar-nav"
 import { NavigationMenu } from "../components/navigationMenu"
-import { Header } from "./components/header";
 import { IS_BILLING_ENABLED } from "@/ee/features/billing/stripe";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { isServiceError } from "@/lib/utils";
-import { getMe, getOrgAccountRequests } from "@/actions";
+import { getConnectionStats, getMe, getOrgAccountRequests } from "@/actions";
 import { ServiceErrorException } from "@/lib/serviceError";
 import { getOrgFromDomain } from "@/data/org";
 import { OrgRole } from "@prisma/client";
-import { env } from "@/env.mjs";
+import { hasEntitlement } from "@sourcebot/shared";
+import { env } from "@sourcebot/shared/client";
 
 interface LayoutProps {
     children: React.ReactNode;
@@ -64,7 +64,14 @@ export default async function SettingsLayout(
         numJoinRequests = requests.length;
     }
 
-    const sidebarNavItems = [
+    const connectionStats = await getConnectionStats();
+    if (isServiceError(connectionStats)) {
+        throw new ServiceErrorException(connectionStats);
+    }
+
+    const hasPermissionSyncingEntitlement = await hasEntitlement("permission-syncing");
+
+    const sidebarNavItems: SidebarNavItem[] = [
         {
             title: "General",
             href: `/${domain}/settings`,
@@ -94,10 +101,14 @@ export default async function SettingsLayout(
             ),
             href: `/${domain}/settings/members`,
         }] : []),
-        {
-            title: "Secrets",
-            href: `/${domain}/settings/secrets`,
-        },
+        ...(userRoleInOrg === OrgRole.OWNER ? [
+            {
+                title: "Connections",
+                href: `/${domain}/settings/connections`,
+                hrefRegex: `/${domain}/settings/connections(/[^/]+)?$`,
+                isNotificationDotVisible: connectionStats.numberOfConnectionsWithFirstTimeSyncJobsInProgress > 0,
+            }
+        ] : []),
         {
             title: "API Keys",
             href: `/${domain}/settings/apiKeys`,
@@ -106,6 +117,12 @@ export default async function SettingsLayout(
             title: "Analytics",
             href: `/${domain}/settings/analytics`,
         },
+        ...(hasPermissionSyncingEntitlement ? [
+            {
+                title: "Linked Accounts",
+                href: `/${domain}/settings/permission-syncing`,
+            }
+        ] : []),
         ...(env.NEXT_PUBLIC_SOURCEBOT_CLOUD_ENVIRONMENT === undefined ? [
             {
                 title: "License",
@@ -115,21 +132,24 @@ export default async function SettingsLayout(
     ]
 
     return (
-        <div className="min-h-screen flex flex-col bg-backgroundSecondary">
+        <div className="min-h-screen flex flex-col">
             <NavigationMenu domain={domain} />
-            <div className="flex-grow flex justify-center p-4 relative">
-                <div className="w-full max-w-6xl p-6">
-                    <Header className="w-full">
-                        <h1 className="text-3xl">Settings</h1>
-                    </Header>
-                    <div className="flex flex-row gap-10 mt-20">
-                        <aside className="lg:w-48">
-                            <SidebarNav items={sidebarNavItems} />
-                        </aside>
-                        <div className="w-full rounded-lg">{children}</div>
+            <main className="flex-grow flex justify-center p-4 bg-backgroundSecondary relative">
+                <div className="w-full max-w-6xl rounded-lg p-6">
+                    <div className="container mx-auto">
+                        <div className="mb-16">
+                            <h1 className="text-3xl font-semibold">Settings</h1>
+                        </div>
+                        <div className="flex flex-row gap-10">
+                            <aside className="lg:w-48">
+                                <SidebarNav items={sidebarNavItems} />
+                            </aside>
+                            <div className="w-full rounded-lg">{children}</div>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </main>
         </div>
     )
 }
+

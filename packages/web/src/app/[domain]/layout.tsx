@@ -7,7 +7,7 @@ import { UpgradeGuard } from "./components/upgradeGuard";
 import { cookies, headers } from "next/headers";
 import { getSelectorsByUserAgent } from "react-device-detect";
 import { MobileUnsupportedSplashScreen } from "./components/mobileUnsupportedSplashScreen";
-import { MOBILE_UNSUPPORTED_SPLASH_SCREEN_DISMISSED_COOKIE_NAME } from "@/lib/constants";
+import { MOBILE_UNSUPPORTED_SPLASH_SCREEN_DISMISSED_COOKIE_NAME, OPTIONAL_PROVIDERS_LINK_SKIPPED_COOKIE_NAME } from "@/lib/constants";
 import { SyntaxReferenceGuide } from "./components/syntaxReferenceGuide";
 import { SyntaxGuideProvider } from "./components/syntaxGuideProvider";
 import { IS_BILLING_ENABLED } from "@/ee/features/billing/stripe";
@@ -16,12 +16,15 @@ import { getSubscriptionInfo } from "@/ee/features/billing/actions";
 import { PendingApprovalCard } from "./components/pendingApproval";
 import { SubmitJoinRequest } from "./components/submitJoinRequest";
 import { hasEntitlement } from "@sourcebot/shared";
-import { env } from "@/env.mjs";
+import { env } from "@sourcebot/shared";
 import { GcpIapAuth } from "./components/gcpIapAuth";
 import { getAnonymousAccessStatus, getMemberApprovalRequired } from "@/actions";
 import { JoinOrganizationCard } from "@/app/components/joinOrganizationCard";
 import { LogoutEscapeHatch } from "@/app/components/logoutEscapeHatch";
 import { GitHubStarToast } from "./components/githubStarToast";
+import { UpgradeToast } from "./components/upgradeToast";
+import { getLinkedAccountProviderStates } from "@/ee/features/permissionSyncing/actions";
+import { LinkAccounts } from "@/ee/features/permissionSyncing/components/linkAccounts";
 
 interface LayoutProps {
     children: React.ReactNode,
@@ -122,6 +125,42 @@ export default async function Layout(props: LayoutProps) {
         )
     }
 
+    if (hasEntitlement("permission-syncing")) {
+        const linkedAccountProviderStates = await getLinkedAccountProviderStates();
+        if (isServiceError(linkedAccountProviderStates)) {
+            return (
+                <div className="min-h-screen flex flex-col items-center justify-center p-6">
+                    <LogoutEscapeHatch className="absolute top-0 right-0 p-6" />
+                    <div className="bg-red-50 border border-red-200 rounded-md p-6 max-w-md w-full text-center">
+                        <h2 className="text-lg font-semibold text-red-800 mb-2">An error occurred</h2>
+                        <p className="text-red-700 mb-1">
+                            {typeof linkedAccountProviderStates.message === 'string'
+                                ? linkedAccountProviderStates.message
+                                : "A server error occurred while checking your account status. Please try again or contact support."}
+                        </p>
+                    </div>
+                </div>
+            )
+        }
+
+        const hasUnlinkedProviders = linkedAccountProviderStates.some(state => state.isLinked === false);
+        if (hasUnlinkedProviders) {
+            const cookieStore = await cookies();
+            const hasSkippedOptional = cookieStore.has(OPTIONAL_PROVIDERS_LINK_SKIPPED_COOKIE_NAME);
+
+            const hasUnlinkedRequiredProviders = linkedAccountProviderStates.some(state => state.required && !state.isLinked)
+            const shouldShowLinkAccounts = hasUnlinkedRequiredProviders || !hasSkippedOptional;
+            if (shouldShowLinkAccounts) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center p-6">
+                        <LogoutEscapeHatch className="absolute top-0 right-0 p-6" />
+                        <LinkAccounts linkedAccountProviderStates={linkedAccountProviderStates} callbackUrl={`/${domain}`}/>
+                    </div>
+                )
+            }
+        }
+    }
+
     if (IS_BILLING_ENABLED) {
         const subscription = await getSubscriptionInfo(domain);
         if (
@@ -154,6 +193,7 @@ export default async function Layout(props: LayoutProps) {
             {children}
             <SyntaxReferenceGuide />
             <GitHubStarToast />
+            <UpgradeToast />
         </SyntaxGuideProvider>
     )
 }

@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { NavigationMenu } from "../components/navigationMenu";
 import { FaCogs } from "react-icons/fa";
-import { env } from "@/env.mjs";
+import { env } from "@sourcebot/shared";
 
 const agents = [
   {
     id: "review-agent",
     name: "Review Agent",
     description: "An AI code review agent that reviews your PRs. Uses the code indexed on Sourcebot to provide codebase-wide context.",
-    requiredEnvVars: ["GITHUB_APP_ID", "GITHUB_APP_WEBHOOK_SECRET", "GITHUB_APP_PRIVATE_KEY_PATH", "OPENAI_API_KEY"],
+    requiredEnvVars: ["GITHUB_REVIEW_AGENT_APP_ID", "GITHUB_REVIEW_AGENT_APP_WEBHOOK_SECRET", "GITHUB_REVIEW_AGENT_APP_PRIVATE_KEY_PATH", "OPENAI_API_KEY"],
     configureUrl: "https://docs.sourcebot.dev/docs/features/agents/review-agent"
   },
 ];

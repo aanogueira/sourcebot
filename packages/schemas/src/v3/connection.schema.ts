@@ -14,35 +14,30 @@ const schema = {
         },
         "token": {
           "description": "A Personal Access Token (PAT).",
-          "examples": [
-            {
-              "secret": "SECRET_KEY"
-            }
-          ],
           "anyOf": [
             {
               "type": "object",
               "properties": {
-                "secret": {
+                "env": {
                   "type": "string",
-                  "description": "The name of the secret that contains the token."
+                  "description": "The name of the environment variable that contains the token."
                 }
               },
               "required": [
-                "secret"
+                "env"
               ],
               "additionalProperties": false
             },
             {
               "type": "object",
               "properties": {
-                "env": {
+                "googleCloudSecret": {
                   "type": "string",
-                  "description": "The name of the environment variable that contains the token. Only supported in declarative connection configs."
+                  "description": "The resource name of a Google Cloud secret. Must be in the format `projects/<project-id>/secrets/<secret-name>/versions/<version-id>`. See https://cloud.google.com/secret-manager/docs/creating-and-accessing-secrets"
                 }
               },
               "required": [
-                "env"
+                "googleCloudSecret"
               ],
               "additionalProperties": false
             }
@@ -227,35 +222,30 @@ const schema = {
         },
         "token": {
           "description": "An authentication token.",
-          "examples": [
-            {
-              "secret": "SECRET_KEY"
-            }
-          ],
           "anyOf": [
             {
               "type": "object",
               "properties": {
-                "secret": {
+                "env": {
                   "type": "string",
-                  "description": "The name of the secret that contains the token."
+                  "description": "The name of the environment variable that contains the token."
                 }
               },
               "required": [
-                "secret"
+                "env"
               ],
               "additionalProperties": false
             },
             {
               "type": "object",
               "properties": {
-                "env": {
+                "googleCloudSecret": {
                   "type": "string",
-                  "description": "The name of the environment variable that contains the token. Only supported in declarative connection configs."
+                  "description": "The resource name of a Google Cloud secret. Must be in the format `projects/<project-id>/secrets/<secret-name>/versions/<version-id>`. See https://cloud.google.com/secret-manager/docs/creating-and-accessing-secrets"
                 }
               },
               "required": [
-                "env"
+                "googleCloudSecret"
               ],
               "additionalProperties": false
             }
@@ -434,35 +424,30 @@ const schema = {
         },
         "token": {
           "description": "A Personal Access Token (PAT).",
-          "examples": [
-            {
-              "secret": "SECRET_KEY"
-            }
-          ],
           "anyOf": [
             {
               "type": "object",
               "properties": {
-                "secret": {
+                "env": {
                   "type": "string",
-                  "description": "The name of the secret that contains the token."
+                  "description": "The name of the environment variable that contains the token."
                 }
               },
               "required": [
-                "secret"
+                "env"
               ],
               "additionalProperties": false
             },
             {
               "type": "object",
               "properties": {
-                "env": {
+                "googleCloudSecret": {
                   "type": "string",
-                  "description": "The name of the environment variable that contains the token. Only supported in declarative connection configs."
+                  "description": "The resource name of a Google Cloud secret. Must be in the format `projects/<project-id>/secrets/<secret-name>/versions/<version-id>`. See https://cloud.google.com/secret-manager/docs/creating-and-accessing-secrets"
                 }
               },
               "required": [
-                "env"
+                "googleCloudSecret"
               ],
               "additionalProperties": false
             }
@@ -706,35 +691,30 @@ const schema = {
         },
         "token": {
           "description": "An authentication token.",
-          "examples": [
-            {
-              "secret": "SECRET_KEY"
-            }
-          ],
           "anyOf": [
             {
               "type": "object",
               "properties": {
-                "secret": {
+                "env": {
                   "type": "string",
-                  "description": "The name of the secret that contains the token."
+                  "description": "The name of the environment variable that contains the token."
                 }
               },
               "required": [
-                "secret"
+                "env"
               ],
               "additionalProperties": false
             },
             {
               "type": "object",
               "properties": {
-                "env": {
+                "googleCloudSecret": {
                   "type": "string",
-                  "description": "The name of the environment variable that contains the token. Only supported in declarative connection configs."
+                  "description": "The resource name of a Google Cloud secret. Must be in the format `projects/<project-id>/secrets/<secret-name>/versions/<version-id>`. See https://cloud.google.com/secret-manager/docs/creating-and-accessing-secrets"
                 }
               },
               "required": [
-                "env"
+                "googleCloudSecret"
               ],
               "additionalProperties": false
             }
@@ -879,35 +859,30 @@ const schema = {
         },
         "token": {
           "description": "A Personal Access Token (PAT).",
-          "examples": [
-            {
-              "secret": "SECRET_KEY"
-            }
-          ],
           "anyOf": [
             {
               "type": "object",
               "properties": {
-                "secret": {
+                "env": {
                   "type": "string",
-                  "description": "The name of the secret that contains the token."
+                  "description": "The name of the environment variable that contains the token."
                 }
               },
               "required": [
-                "secret"
+                "env"
               ],
               "additionalProperties": false
             },
             {
               "type": "object",
               "properties": {
-                "env": {
+                "googleCloudSecret": {
                   "type": "string",
-                  "description": "The name of the environment variable that contains the token. Only supported in declarative connection configs."
+                  "description": "The resource name of a Google Cloud secret. Must be in the format `projects/<project-id>/secrets/<secret-name>/versions/<version-id>`. See https://cloud.google.com/secret-manager/docs/creating-and-accessing-secrets"
                 }
               },
               "required": [
-                "env"
+                "googleCloudSecret"
               ],
               "additionalProperties": false
             }

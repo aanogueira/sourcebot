@@ -42,16 +42,10 @@ COPY package.json yarn.lock* .yarnrc.yml ./
 COPY .yarn ./.yarn
 COPY ./packages/db ./packages/db
 COPY ./packages/schemas ./packages/schemas
-COPY ./packages/crypto ./packages/crypto
-COPY ./packages/error ./packages/error
-COPY ./packages/logger ./packages/logger
 COPY ./packages/shared ./packages/shared
 
 RUN yarn workspace @sourcebot/db install
 RUN yarn workspace @sourcebot/schemas install
-RUN yarn workspace @sourcebot/crypto install
-RUN yarn workspace @sourcebot/error install
-RUN yarn workspace @sourcebot/logger install
 RUN yarn workspace @sourcebot/shared install
 # ------------------------------------
 
@@ -97,9 +91,6 @@ COPY ./packages/web ./packages/web
 COPY --from=shared-libs-builder /app/node_modules ./node_modules
 COPY --from=shared-libs-builder /app/packages/db ./packages/db
 COPY --from=shared-libs-builder /app/packages/schemas ./packages/schemas
-COPY --from=shared-libs-builder /app/packages/crypto ./packages/crypto
-COPY --from=shared-libs-builder /app/packages/error ./packages/error
-COPY --from=shared-libs-builder /app/packages/logger ./packages/logger
 COPY --from=shared-libs-builder /app/packages/shared ./packages/shared
 
 # Fixes arm64 timeouts
@@ -138,9 +129,6 @@ COPY ./packages/backend ./packages/backend
 COPY --from=shared-libs-builder /app/node_modules ./node_modules
 COPY --from=shared-libs-builder /app/packages/db ./packages/db
 COPY --from=shared-libs-builder /app/packages/schemas ./packages/schemas
-COPY --from=shared-libs-builder /app/packages/crypto ./packages/crypto
-COPY --from=shared-libs-builder /app/packages/error ./packages/error
-COPY --from=shared-libs-builder /app/packages/logger ./packages/logger
 COPY --from=shared-libs-builder /app/packages/shared ./packages/shared
 RUN yarn workspace @sourcebot/backend install
 RUN yarn workspace @sourcebot/backend build
@@ -185,7 +173,6 @@ ENV DATA_DIR=/data
 ENV DATA_CACHE_DIR=$DATA_DIR/.sourcebot
 ENV DATABASE_DATA_DIR=$DATA_CACHE_DIR/db
 ENV REDIS_DATA_DIR=$DATA_CACHE_DIR/redis
-ENV REDIS_URL="redis://localhost:6379"
 ENV SRC_TENANT_ENFORCEMENT_MODE=strict
 ENV SOURCEBOT_PUBLIC_KEY_PATH=/app/public.pem
 
@@ -194,6 +181,22 @@ ENV SOURCEBOT_LOG_LEVEL=info
 
 # Sourcebot collects anonymous usage data using [PostHog](https://posthog.com/). Uncomment this line to disable.
 # ENV SOURCEBOT_TELEMETRY_DISABLED=1
+
+# Configure dependencies
+RUN apk add --no-cache git ca-certificates bind-tools tini jansson wget supervisor uuidgen curl perl jq redis postgresql postgresql-contrib openssl util-linux unzip
+
+ARG UID=1500
+ARG GID=1500
+
+# Always create the non-root user to support runtime user switching
+# The container can be run as root (default) or as sourcebot user using docker run --user
+RUN addgroup -g $GID sourcebot && \
+    adduser -D -u $UID -h /app -S sourcebot && \
+    adduser sourcebot postgres && \
+    adduser sourcebot redis && \
+    adduser sourcebot node && \
+    mkdir /var/log/sourcebot && \
+    chown sourcebot /var/log/sourcebot
 
 COPY package.json yarn.lock* .yarnrc.yml public.pem ./
 COPY .yarn ./.yarn
@@ -225,18 +228,18 @@ COPY --from=backend-builder /app/packages/backend ./packages/backend
 COPY --from=shared-libs-builder /app/node_modules ./node_modules
 COPY --from=shared-libs-builder /app/packages/db ./packages/db
 COPY --from=shared-libs-builder /app/packages/schemas ./packages/schemas
-COPY --from=shared-libs-builder /app/packages/crypto ./packages/crypto
-COPY --from=shared-libs-builder /app/packages/error ./packages/error
-COPY --from=shared-libs-builder /app/packages/logger ./packages/logger
 COPY --from=shared-libs-builder /app/packages/shared ./packages/shared
 
-# Configure dependencies
-RUN apk add --no-cache git ca-certificates bind-tools tini jansson wget supervisor uuidgen curl perl jq redis postgresql postgresql-contrib openssl util-linux unzip
+# Fixes git "dubious ownership" issues when the volume is mounted with different permissions to the container.
+RUN git config --global safe.directory "*"
 
 # Configure the database
 RUN mkdir -p /run/postgresql && \
     chown -R postgres:postgres /run/postgresql && \
     chmod 775 /run/postgresql
+
+# Make app directory accessible to both root and sourcebot user
+RUN chown -R sourcebot:sourcebot /app
 
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY prefix-output.sh ./prefix-output.sh
@@ -244,7 +247,9 @@ RUN chmod +x ./prefix-output.sh
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 
-COPY default-config.json .
+# Note: for back-compat cases, we do _not_ set the USER directive here.
+# Instead, the user can be overridden at runtime with --user flag.
+# USER sourcebot
 
 EXPOSE 3000
 ENV PORT=3000

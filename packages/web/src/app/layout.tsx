@@ -6,14 +6,20 @@ import { PostHogProvider } from "./posthogProvider";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SessionProvider } from "next-auth/react";
-import { env } from "@/env.mjs";
+import { env } from "@sourcebot/shared";
 import { PlanProvider } from "@/features/entitlements/planProvider";
 import { getEntitlements } from "@sourcebot/shared";
 
 export const metadata: Metadata = {
-    title: "Sourcebot",
-    description: "Sourcebot is a self-hosted code understanding tool. Ask questions about your codebase and get rich Markdown answers with inline citations.",
-    manifest: "/manifest.json",
+  // Using the title.template will allow child pages to set the title
+  // while keeping a consistent suffix.
+  title: {
+    default: "Sourcebot",
+    template: "%s | Sourcebot",
+  },
+  description:
+    "Sourcebot is a self-hosted code understanding tool. Ask questions about your codebase and get rich Markdown answers with inline citations.",
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({

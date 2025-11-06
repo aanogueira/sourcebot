@@ -1,12 +1,12 @@
 import * as Sentry from "@sentry/node";
 import { PrismaClient, Repo, RepoPermissionSyncJobStatus } from "@sourcebot/db";
-import { createLogger } from "@sourcebot/logger";
-import { hasEntitlement } from "@sourcebot/shared";
+import { createLogger } from "@sourcebot/shared";
+import { env, hasEntitlement } from "@sourcebot/shared";
 import { Job, Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { PERMISSION_SYNC_SUPPORTED_CODE_HOST_TYPES } from "../constants.js";
-import { env } from "../env.js";
-import { createOctokitFromToken, getRepoCollaborators } from "../github.js";
+import { createOctokitFromToken, getRepoCollaborators, GITHUB_CLOUD_HOSTNAME } from "../github.js";
+import { createGitLabFromPersonalAccessToken, getProjectMembers } from "../gitlab.js";
 import { Settings } from "../types.js";
 import { getAuthCredentialsForRepo } from "../utils.js";
 
@@ -16,8 +16,9 @@ type RepoPermissionSyncJob = {
 
 const QUEUE_NAME = 'repoPermissionSyncQueue';
 
-const logger = createLogger('repo-permission-syncer');
-
+const LOG_TAG = 'repo-permission-syncer';
+const logger = createLogger(LOG_TAG);
+const createJobLogger = (jobId: string) => createLogger(`${LOG_TAG}:job:${jobId}`);
 
 export class RepoPermissionSyncer {
     private queue: Queue<RepoPermissionSyncJob>;
@@ -101,37 +102,40 @@ export class RepoPermissionSyncer {
         }, 1000 * 5);
     }
 
-    public dispose() {
+    public async dispose() {
         if (this.interval) {
             clearInterval(this.interval);
         }
-        this.worker.close();
-        this.queue.close();
+        await this.worker.close();
+        await this.queue.close();
     }
 
     private async schedulePermissionSync(repos: Repo[]) {
-        await this.db.$transaction(async (tx) => {
-            const jobs = await tx.repoPermissionSyncJob.createManyAndReturn({
-                data: repos.map(repo => ({
-                    repoId: repo.id,
-                })),
-            });
-
-            await this.queue.addBulk(jobs.map((job) => ({
-                name: 'repoPermissionSyncJob',
-                data: {
-                    jobId: job.id,
-                },
-                opts: {
-                    removeOnComplete: env.REDIS_REMOVE_ON_COMPLETE,
-                    removeOnFail: env.REDIS_REMOVE_ON_FAIL,
-                }
-            })))
+        // @note: we don't perform this in a transaction because
+        // we want to avoid the situation where a job is created and run
+        // prior to the transaction being committed.
+        const jobs = await this.db.repoPermissionSyncJob.createManyAndReturn({
+            data: repos.map(repo => ({
+                repoId: repo.id,
+            })),
         });
+
+        await this.queue.addBulk(jobs.map((job) => ({
+            name: 'repoPermissionSyncJob',
+            data: {
+                jobId: job.id,
+            },
+            opts: {
+                removeOnComplete: env.REDIS_REMOVE_ON_COMPLETE,
+                removeOnFail: env.REDIS_REMOVE_ON_FAIL,
+            }
+        })))
     }
 
     private async runJob(job: Job<RepoPermissionSyncJob>) {
         const id = job.data.jobId;
+        const logger = createJobLogger(id);
+
         const { repo } = await this.db.repoPermissionSyncJob.update({
             where: {
                 id,
@@ -158,16 +162,17 @@ export class RepoPermissionSyncer {
 
         logger.info(`Syncing permissions for repo ${repo.displayName}...`);
 
-        const credentials = await getAuthCredentialsForRepo(repo, this.db, logger);
+        const credentials = await getAuthCredentialsForRepo(repo, logger);
         if (!credentials) {
             throw new Error(`No credentials found for repo ${id}`);
         }
 
-        const userIds = await (async () => {
+        const accountIds = await (async () => {
             if (repo.external_codeHostType === 'github') {
+                const isGitHubCloud = credentials.hostUrl ? new URL(credentials.hostUrl).hostname === GITHUB_CLOUD_HOSTNAME : false;
                 const { octokit } = await createOctokitFromToken({
                     token: credentials.token,
-                    url: credentials.hostUrl,
+                    url: isGitHubCloud ? undefined : credentials.hostUrl,
                 });
 
                 // @note: this is a bit of a hack since the displayName _might_ not be set..
@@ -189,12 +194,33 @@ export class RepoPermissionSyncer {
                             in: githubUserIds,
                         }
                     },
-                    select: {
-                        userId: true,
+                });
+
+                return accounts.map(account => account.id);
+            } else if (repo.external_codeHostType === 'gitlab') {
+                const api = await createGitLabFromPersonalAccessToken({
+                    token: credentials.token,
+                    url: credentials.hostUrl,
+                });
+
+                const projectId = repo.external_id;
+                if (!projectId) {
+                    throw new Error(`Repo ${id} does not have an external_id`);
+                }
+
+                const members = await getProjectMembers(projectId, api);
+                const gitlabUserIds = members.map(member => member.id.toString());
+
+                const accounts = await this.db.account.findMany({
+                    where: {
+                        provider: 'gitlab',
+                        providerAccountId: {
+                            in: gitlabUserIds,
+                        }
                     },
                 });
 
-                return accounts.map(account => account.userId);
+                return accounts.map(account => account.id);
             }
 
             return [];
@@ -206,14 +232,14 @@ export class RepoPermissionSyncer {
                     id: repo.id,
                 },
                 data: {
-                    permittedUsers: {
+                    permittedAccounts: {
                         deleteMany: {},
                     }
                 }
             }),
-            this.db.userToRepoPermission.createMany({
-                data: userIds.map(userId => ({
-                    userId,
+            this.db.accountToRepoPermission.createMany({
+                data: accountIds.map(accountId => ({
+                    accountId,
                     repoId: repo.id,
                 })),
             })
@@ -221,6 +247,8 @@ export class RepoPermissionSyncer {
     }
 
     private async onJobCompleted(job: Job<RepoPermissionSyncJob>) {
+        const logger = createJobLogger(job.data.jobId);
+
         const { repo } = await this.db.repoPermissionSyncJob.update({
             where: {
                 id: job.data.jobId,
@@ -243,6 +271,8 @@ export class RepoPermissionSyncer {
     }
 
     private async onJobFailed(job: Job<RepoPermissionSyncJob> | undefined, err: Error) {
+        const logger = createJobLogger(job?.data.jobId ?? 'unknown');
+
         Sentry.captureException(err, {
             tags: {
                 jobId: job?.data.jobId,

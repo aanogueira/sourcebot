@@ -8,7 +8,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added support for running Sourcebot as non-root user. [#599](https://github.com/sourcebot-dev/sourcebot/pull/599)
+
+## [4.9.0] - 2025-11-04
+
+### Added
+- [Experimental][Sourcebot EE] Added GitLab permission syncing. [#585](https://github.com/sourcebot-dev/sourcebot/pull/585)
+- [Sourcebot EE] Added external identity provider config and support for multiple accounts. [#595](https://github.com/sourcebot-dev/sourcebot/pull/595)
+- Added ability to configure environment variables from the config. [#597](https://github.com/sourcebot-dev/sourcebot/pull/597)
+
+### Fixed
+- [ask sb] Fixed issue where reasoning tokens would appear in `text` content for openai compatible models. [#582](https://github.com/sourcebot-dev/sourcebot/pull/582)
+- Fixed issue with GitHub app token tracking and refreshing. [#583](https://github.com/sourcebot-dev/sourcebot/pull/583)
+- Fixed "The account is already associated with another user" errors with GitLab oauth provider. [#584](https://github.com/sourcebot-dev/sourcebot/pull/584)
+- Fixed error when viewing a generic git connection in `/settings/connections`. [#588](https://github.com/sourcebot-dev/sourcebot/pull/588)
+- Fixed issue with an unbounded `Promise.allSettled(...)` when retrieving details from the GitHub API about a large number of repositories (or orgs or users). [#591](https://github.com/sourcebot-dev/sourcebot/pull/591)
+- Fixed resource exhaustion (EAGAIN errors) when syncing generic-git-host connections with thousands of repositories. [#593](https://github.com/sourcebot-dev/sourcebot/pull/593)
+
+### Removed
+- Removed built-in secret manager. [#592](https://github.com/sourcebot-dev/sourcebot/pull/592)
+
+### Changed
+- Changed internal representation of how repo permissions are represented in the database. [#600](https://github.com/sourcebot-dev/sourcebot/pull/600)
+
+## [4.8.1] - 2025-10-29
+
+### Fixed
+- Fixed commit and branch hyperlinks not rendering for Gerrit repos. [#581](https://github.com/sourcebot-dev/sourcebot/pull/581)
+- Fixed visual bug when a repository does not have a image. [#581](https://github.com/sourcebot-dev/sourcebot/pull/581)
+- Fixed issue where the Ask homepage was not scrollable. [#581](https://github.com/sourcebot-dev/sourcebot/pull/581)
+
+## [4.8.0] - 2025-10-28
+
+### Added
+- Implement dynamic tab titles for files and folders in browse tab. [#560](https://github.com/sourcebot-dev/sourcebot/pull/560)
 - Added support for passing db connection url as seperate `DATABASE_HOST`, `DATABASE_USERNAME`, `DATABASE_PASSWORD`, `DATABASE_NAME`, and `DATABASE_ARGS` env vars. [#545](https://github.com/sourcebot-dev/sourcebot/pull/545)
+- Added support for GitHub Apps for service auth. [#570](https://github.com/sourcebot-dev/sourcebot/pull/570)
+- Added prometheus metrics for repo index manager. [#571](https://github.com/sourcebot-dev/sourcebot/pull/571)
+- Added experimental environment variable to disable API key creation for non-admin users. [#577](https://github.com/sourcebot-dev/sourcebot/pull/577)
+- [Experimental][Sourcebot EE] Added REST API to get users and delete a user. [#578](https://github.com/sourcebot-dev/sourcebot/pull/578)
+
+### Fixed
+- Fixed "dubious ownership" errors when cloning / fetching repos. [#553](https://github.com/sourcebot-dev/sourcebot/pull/553)
+- Fixed issue with Ask Sourcebot tutorial re-appearing after restarting the browser. [#563](https://github.com/sourcebot-dev/sourcebot/pull/563)
+- Fixed `repoIndexTimeoutMs` not being used for index job timeouts. [#567](https://github.com/sourcebot-dev/sourcebot/pull/567)
+
+### Changed
+- Improved search performance for unbounded search queries. [#555](https://github.com/sourcebot-dev/sourcebot/pull/555)
+- Improved homepage performance by removing client side polling. [#563](https://github.com/sourcebot-dev/sourcebot/pull/563)
+- Changed navbar indexing indicator to only report progress for first time indexing jobs. [#563](https://github.com/sourcebot-dev/sourcebot/pull/563)
+- Improved repo indexing job stability and robustness. [#563](https://github.com/sourcebot-dev/sourcebot/pull/563)
+- Improved repositories table. [#572](https://github.com/sourcebot-dev/sourcebot/pull/572)
+- Improved connections table. [#579](https://github.com/sourcebot-dev/sourcebot/pull/579)
+
+### Removed
+- Removed spam "login page loaded" log. [#552](https://github.com/sourcebot-dev/sourcebot/pull/552)
+- Removed connections management page. [#563](https://github.com/sourcebot-dev/sourcebot/pull/563)
 
 ## [4.7.3] - 2025-09-29
 
